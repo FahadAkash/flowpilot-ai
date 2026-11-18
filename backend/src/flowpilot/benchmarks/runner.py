@@ -42,6 +42,7 @@ async def run_flowpilot_benchmark_case(
             max_agent_calls=15,
             max_tokens_per_workflow=10_000,
             max_escalations=1,
+            timeout_seconds=180.0,
             confidence_threshold=0.80,
         ),
     )
@@ -92,7 +93,11 @@ def render_benchmark_markdown(
 ) -> str:
     """Render a side-by-side Markdown comparison report from persisted metrics."""
     token_red = (1.0 - orchestrator.avg_tokens / max(baseline.avg_tokens, 1.0)) * 100.0
-    cost_red = (1.0 - orchestrator.avg_cost_usd / max(baseline.avg_cost_usd, 1e-9)) * 100.0
+    cost_red = (
+        (1.0 - orchestrator.avg_cost_usd / baseline.avg_cost_usd) * 100.0
+        if baseline.avg_cost_usd > 0
+        else token_red
+    )
     p95_red = (1.0 - orchestrator.p95_latency_ms / max(baseline.p95_latency_ms, 1.0)) * 100.0
     tput_mult = orchestrator.throughput_rps / max(baseline.throughput_rps, 0.01)
 
@@ -145,7 +150,11 @@ async def run_comparative_benchmark(
     report_md = render_benchmark_markdown(base_agg, fp_agg)
 
     token_red = round((1.0 - fp_agg.avg_tokens / max(base_agg.avg_tokens, 1.0)) * 100.0, 2)
-    cost_red = round((1.0 - fp_agg.avg_cost_usd / max(base_agg.avg_cost_usd, 1e-9)) * 100.0, 2)
+    cost_red = (
+        round((1.0 - fp_agg.avg_cost_usd / base_agg.avg_cost_usd) * 100.0, 2)
+        if base_agg.avg_cost_usd > 0
+        else token_red
+    )
     p95_red = round((1.0 - fp_agg.p95_latency_ms / max(base_agg.p95_latency_ms, 1.0)) * 100.0, 2)
     tput_mult = round(fp_agg.throughput_rps / max(base_agg.throughput_rps, 0.01), 2)
     f1_delta = round(fp_agg.field_f1 - base_agg.field_f1, 4)

@@ -25,7 +25,11 @@ async def run_monolithic_baseline_case(
     budget = WorkflowBudgetTracker(
         workflow_id=f"baseline-{case.case_id}",
         user_id="benchmark",
-        limits=BudgetLimits(max_tokens_per_workflow=50_000, max_cost_per_workflow_usd=5.0),
+        limits=BudgetLimits(
+            max_tokens_per_workflow=50_000,
+            max_cost_per_workflow_usd=5.0,
+            timeout_seconds=180.0,
+        ),
     )
 
     full_context = "\n\n---\n\n".join(f"Document: {d['filename']}\n{d['raw_text']}" for d in docs)

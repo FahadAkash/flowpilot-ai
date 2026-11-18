@@ -280,15 +280,22 @@ def build_flowpilot_graph(deps: GraphRuntimeDeps) -> Any:
             budget=deps.budget,
             retry_feedback=retry_feedback,
         )
+        model_log = out.get("model_log")
         latency_ms = round(
-            (time.perf_counter() - t0) * 1000.0 + float(out["model_log"]["latency_ms"]), 2
+            (time.perf_counter() - t0) * 1000.0
+            + (float(model_log["latency_ms"]) if model_log else 0.0),
+            2,
         )
         step_entry = {
             "node_name": "extraction",
             "agent_name": "extraction",
             "tier": 2,
             "status": "completed",
-            "routing_reason": "Extracted typed Pydantic document records with page citations.",
+            "routing_reason": (
+                "Deterministic structured parser achieved full schema coverage (0 LLM tokens)."
+                if model_log is None
+                else "Extracted typed Pydantic document records with Tier 2 LLM assistance."
+            ),
             "input_summary_json": {
                 "chunks": len(state.get("retrieved_chunks") or []),
                 "retry": bool(retry_feedback),
@@ -296,19 +303,21 @@ def build_flowpilot_graph(deps: GraphRuntimeDeps) -> Any:
             "output_summary_json": {"records_extracted": len(out["extracted_records"])},
             "confidence": out["calibrated_confidence"],
             "latency_ms": latency_ms,
-            "tokens_used": int(out["model_log"]["total_tokens"]),
-            "cost_usd": float(out["model_log"]["cost_usd"]),
+            "tokens_used": int(model_log["total_tokens"]) if model_log else 0,
+            "cost_usd": float(model_log["cost_usd"]) if model_log else 0.0,
         }
-        return {
+        res: dict[str, Any] = {
             "extracted_records": out["extracted_records"],
             "raw_confidence": out["raw_confidence"],
             "calibrated_confidence": out["calibrated_confidence"],
             "needs_retry": False,
             "retry_count": deps.budget.retries,
-            "model_logs": [out["model_log"]],
             "tool_logs": out["tool_logs"],
             "execution_trace": [step_entry],
         }
+        if model_log:
+            res["model_logs"] = [model_log]
+        return res
 
     async def comparison_node(state: FlowPilotState) -> dict[str, Any]:
         _guard_node(state, "comparison")
@@ -320,8 +329,11 @@ def build_flowpilot_graph(deps: GraphRuntimeDeps) -> Any:
             gateway=deps.gateway,
             budget=deps.budget,
         )
+        model_log = out.get("model_log")
         latency_ms = round(
-            (time.perf_counter() - t0) * 1000.0 + float(out["model_log"]["latency_ms"]), 2
+            (time.perf_counter() - t0) * 1000.0
+            + (float(model_log["latency_ms"]) if model_log else 0.0),
+            2,
         )
         step_entry = {
             "node_name": "comparison",
@@ -335,17 +347,19 @@ def build_flowpilot_graph(deps: GraphRuntimeDeps) -> Any:
             "output_summary_json": {"discrepancies": len(out["discrepancies"])},
             "confidence": out["calibrated_confidence"],
             "latency_ms": latency_ms,
-            "tokens_used": int(out["model_log"]["total_tokens"]),
-            "cost_usd": float(out["model_log"]["cost_usd"]),
+            "tokens_used": int(model_log["total_tokens"]) if model_log else 0,
+            "cost_usd": float(model_log["cost_usd"]) if model_log else 0.0,
         }
-        return {
+        res: dict[str, Any] = {
             "discrepancies": out["discrepancies"],
             "raw_confidence": out["raw_confidence"],
             "calibrated_confidence": out["calibrated_confidence"],
-            "model_logs": [out["model_log"]],
             "tool_logs": out["tool_logs"],
             "execution_trace": [step_entry],
         }
+        if model_log:
+            res["model_logs"] = [model_log]
+        return res
 
     async def validation_node(state: FlowPilotState) -> dict[str, Any]:
         _guard_node(state, "validation")

@@ -172,4 +172,4 @@ def test_config_normalization_and_production_guard() -> None:
     assert normalize_async_db_url("postgres://u:p@h/db") == "postgresql+asyncpg://u:p@h/db"
     assert normalize_async_db_url("postgresql://u:p@h/db") == "postgresql+asyncpg://u:p@h/db"
     with pytest.raises(ValueError, match="FLOWPILOT_SECRET_KEY"):
-        Settings(env="production")
+        Settings(env="production", _env_file=None)  # type: ignore[call-arg]

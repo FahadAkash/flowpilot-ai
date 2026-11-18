@@ -5,13 +5,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flowpilot.config import get_settings
 from flowpilot.db.models import Document, DocumentChunk
 from flowpilot.documents.chunker import chunk_parsed_document
-from flowpilot.documents.embeddings import cosine_similarity, embed_text, lexical_overlap_score
+from flowpilot.documents.embeddings import (
+    cosine_similarity,
+    embed_text_async,
+    lexical_overlap_score,
+)
 from flowpilot.documents.parser import parse_document_bytes
 from flowpilot.schemas.documents import RetrievedChunk
 
@@ -67,7 +72,7 @@ class DocumentRepository:
 
         chunks = chunk_parsed_document(parsed)
         for ch in chunks:
-            embedding = embed_text(ch.content, dim=self.settings.embedding_dimensions)
+            embedding = await embed_text_async(ch.content, dim=self.settings.embedding_dimensions)
             self.session.add(
                 DocumentChunk(
                     document_id=doc.id,
@@ -156,16 +161,17 @@ class DocumentRepository:
         if not document_ids:
             return []
 
-        q_vec = embed_text(query, dim=self.settings.embedding_dimensions)
+        q_vec = await embed_text_async(query, dim=self.settings.embedding_dimensions)
         bind = self.session.get_bind()
         is_pg = bind is not None and bind.dialect.name == "postgresql"
 
         if is_pg:
+            vec_col = cast(DocumentChunk.embedding, Vector(self.settings.embedding_dimensions))
             stmt = (
                 select(DocumentChunk, Document)
                 .join(Document, DocumentChunk.document_id == Document.id)
                 .where(DocumentChunk.document_id.in_(document_ids))
-                .order_by(DocumentChunk.embedding.cosine_distance(q_vec))
+                .order_by(vec_col.cosine_distance(q_vec))
                 .limit(top_k * 2)
             )
         else:

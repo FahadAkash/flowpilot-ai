@@ -17,6 +17,7 @@ from flowpilot.observability.metrics import COST_USD_TOTAL, TOKENS_TOTAL
 
 MODEL_PRICING_PER_1K: dict[str, tuple[float, float]] = {
     "deterministic-tier0": (0.0, 0.0),
+    "google/gemma-4-12b-qat": (0.0, 0.0),
     "gpt-4o-mini": (0.00015, 0.00060),
     "gemini-2.5-flash-lite": (0.00010, 0.00040),
     "llama-3.1-8b-local": (0.0, 0.0),
@@ -27,6 +28,7 @@ MODEL_PRICING_PER_1K: dict[str, tuple[float, float]] = {
 
 MODEL_CALIBRATION_PARAMS: dict[str, tuple[float, float]] = {
     "deterministic-tier0": (1.0, 0.0),
+    "google/gemma-4-12b-qat": (0.94, 0.03),
     "gpt-4o-mini": (0.92, 0.04),
     "gemini-2.5-flash-lite": (0.94, 0.03),
     "llama-3.1-8b-local": (0.88, 0.05),
@@ -71,6 +73,8 @@ class ModelGateway:
     def model_for_tier(self, tier: int) -> str:
         if tier <= 0:
             return "deterministic-tier0"
+        if self.provider.provider_name == "lmstudio":
+            return self.settings.lm_studio_chat_model
         if tier == 1:
             return self.settings.tier1_model
         if tier == 2:

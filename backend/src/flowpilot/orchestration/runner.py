@@ -355,6 +355,9 @@ class WorkflowOrchestratorService:
             self.session.add(step_row)
             step_id_by_agent[step_row.agent_name] = step_row.id
 
+        # Ensure workflow_steps are flushed before FK-referencing model/tool invocations on Postgres
+        await self.session.flush()
+
         for ml in model_logs:
             self.session.add(
                 ModelInvocation(

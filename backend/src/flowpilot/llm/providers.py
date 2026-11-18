@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 from abc import ABC, abstractmethod
@@ -42,13 +43,41 @@ class BaseLLMProvider(ABC):
         """Invoke the backing model and return content, tokens, and confidence."""
 
 
-class OpenAICompatibleProvider(BaseLLMProvider):
-    """Works with OpenAI API and local Ollama OpenAI-compatible endpoints."""
+def _extract_json_dict(content: str) -> dict[str, Any]:
+    """Extract a JSON object from raw model text, handling markdown fences or surrounding prose."""
+    cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip(), flags=re.IGNORECASE)
+    with contextlib.suppress(Exception):
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+    match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+    if match:
+        with contextlib.suppress(Exception):
+            parsed = json.loads(match.group(0))
+            if isinstance(parsed, dict):
+                return parsed
+    return {"text": content}
 
-    def __init__(self, *, base_url: str, api_key: str, provider_name: str = "openai") -> None:
+
+class OpenAICompatibleProvider(BaseLLMProvider):
+    """Works with OpenAI API, local LM Studio, and local Ollama OpenAI-compatible endpoints."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        provider_name: str = "openai",
+        timeout_seconds: float = 45.0,
+        supports_json_mode: bool = True,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
+        if not self.base_url.endswith("/v1"):
+            self.base_url = f"{self.base_url}/v1"
         self.api_key = api_key
         self.provider_name = provider_name
+        self.timeout_seconds = timeout_seconds
+        self.supports_json_mode = supports_json_mode
 
     async def generate(
         self,
@@ -64,18 +93,44 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
+        max_tokens = (
+            120
+            if task_kind in {"classify_intent", "classify_document", "plan"}
+            else (180 if tier <= 2 else (280 if task_kind == "frontier_reasoning" else 360))
+        )
+
+        sys_text = system_prompt
+        if not self.supports_json_mode and task_kind in {
+            "classify_intent",
+            "classify_document",
+            "extract_structured",
+            "plan",
+            "compare_documents",
+            "frontier_reasoning",
+        }:
+            sys_text = (
+                f"{system_prompt} Respond ONLY with a compact, valid JSON object. "
+                "Do not output chain-of-thought or markdown prose outside the JSON."
+            )
+
         payload: dict[str, Any] = {
             "model": model_key,
             "temperature": 0.0 if tier <= 2 else 0.1,
+            "max_tokens": max_tokens,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": sys_text},
                 {"role": "user", "content": user_prompt},
             ],
         }
-        if task_kind in {"classify_intent", "classify_document", "extract_structured", "plan"}:
+        if self.supports_json_mode and task_kind in {
+            "classify_intent",
+            "classify_document",
+            "extract_structured",
+            "plan",
+        }:
             payload["response_format"] = {"type": "json_object"}
 
-        async with httpx.AsyncClient(timeout=45.0) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
             resp = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=headers,
@@ -84,21 +139,16 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             resp.raise_for_status()
             data = resp.json()
 
-        content = data["choices"][0]["message"]["content"]
+        msg = data["choices"][0]["message"]
+        content = str(msg.get("content") or msg.get("reasoning_content") or "").strip()
         usage = data.get("usage", {})
-        structured: dict[str, Any] = {}
-        try:
-            structured = json.loads(content)
-        except Exception:
-            structured = {"text": content}
+        structured = _extract_json_dict(content)
 
-        raw_conf = float(structured.get("confidence", 0.88 if tier == 3 else 0.84))
+        raw_conf = float(structured.get("confidence", 0.90 if tier == 3 else 0.86))
         return ProviderResponse(
             content=content,
             structured_data=structured,
-            prompt_tokens=int(
-                usage.get("prompt_tokens", estimate_tokens(system_prompt + user_prompt))
-            ),
+            prompt_tokens=int(usage.get("prompt_tokens", estimate_tokens(sys_text + user_prompt))),
             completion_tokens=int(usage.get("completion_tokens", estimate_tokens(content))),
             raw_confidence=max(0.0, min(1.0, raw_conf)),
         )
@@ -457,6 +507,14 @@ def resolve_provider(provider_name: str | None = None) -> BaseLLMProvider:
     """Resolve configured provider, automatically falling back to Mock if live key is missing."""
     settings = get_settings()
     chosen = (provider_name or settings.llm_provider).lower()
+    if chosen == "lmstudio" and settings.lm_studio_base_url:
+        return OpenAICompatibleProvider(
+            base_url=settings.lm_studio_base_url,
+            api_key="lm-studio",
+            provider_name="lmstudio",
+            timeout_seconds=120.0,
+            supports_json_mode=False,
+        )
     if chosen == "openai" and settings.openai_api_key:
         return OpenAICompatibleProvider(
             base_url="https://api.openai.com/v1",
@@ -468,6 +526,8 @@ def resolve_provider(provider_name: str | None = None) -> BaseLLMProvider:
             base_url=settings.ollama_base_url,
             api_key="ollama",
             provider_name="ollama",
+            timeout_seconds=120.0,
+            supports_json_mode=False,
         )
     if chosen == "gemini" and settings.gemini_api_key:
         return GeminiProvider(api_key=settings.gemini_api_key)

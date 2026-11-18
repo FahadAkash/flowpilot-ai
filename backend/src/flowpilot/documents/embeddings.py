@@ -1,20 +1,21 @@
-"""Deterministic 384-dim semantic feature-hash embeddings + cosine similarity.
-
-Provides instant zero-network normalized embeddings suitable for pgvector cosine
-indexing and offline tests, while supporting optional external embedding APIs.
-"""
+"""Neural embeddings via LM Studio (768-dim Nomic) with deterministic offline fallback."""
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import math
 import re
 
+import httpx
+
+from flowpilot.config import get_settings
+
 TOKEN_RE = re.compile(r"[a-z0-9]{2,}", re.IGNORECASE)
 
 
-def embed_text(text: str, *, dim: int = 384) -> list[float]:
-    """Compute a deterministic L2-normalized 384-dim semantic feature-hash embedding."""
+def embed_text(text: str, *, dim: int = 768) -> list[float]:
+    """Compute a deterministic L2-normalized feature-hash embedding (offline/test fallback)."""
     vec = [0.0] * dim
     tokens = TOKEN_RE.findall(text.lower())
     if not tokens:
@@ -39,6 +40,30 @@ def embed_text(text: str, *, dim: int = 384) -> list[float]:
     if norm > 0.0:
         vec = [round(v / norm, 6) for v in vec]
     return vec
+
+
+async def embed_text_async(text: str, *, dim: int | None = None) -> list[float]:
+    """Generate real neural embeddings via LM Studio when configured, else deterministic fallback."""
+    settings = get_settings()
+    target_dim = dim or settings.embedding_dimensions
+    if settings.env != "test" and settings.lm_studio_base_url:
+        base = settings.lm_studio_base_url.rstrip("/")
+        if not base.endswith("/v1"):
+            base = f"{base}/v1"
+        with contextlib.suppress(Exception):
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"{base}/embeddings",
+                    json={
+                        "model": settings.lm_studio_embedding_model,
+                        "input": text[:4000],
+                    },
+                )
+                resp.raise_for_status()
+                vec = [float(v) for v in resp.json()["data"][0]["embedding"]]
+                if len(vec) == target_dim:
+                    return vec
+    return embed_text(text, dim=target_dim)
 
 
 def cosine_similarity(a: list[float] | None, b: list[float] | None) -> float:

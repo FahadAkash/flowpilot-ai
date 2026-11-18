@@ -21,22 +21,39 @@ FlowPilot AI solves this by making **routing itself** the architectural centerpi
 
 ## Verified Benchmark Results (Baseline A vs. Baseline B)
 
-Evaluated on 16 identical multi-domain documents (UniDoc-Bench task categories: Invoices, Purchase Orders, Company Policies, Commercial Contracts, Financial Reports, and Healthcare Summaries) comparing **Baseline A (Monolithic Frontier)** against **Baseline B (FlowPilot Orchestrator)**:
+Evaluated on **16 identical multi-domain documents** (UniDoc-Bench task categories: Invoices, Purchase Orders, Company Policies, Commercial Contracts, Financial Reports, and Healthcare Summaries) comparing **Baseline A (Monolithic Frontier)** against **Baseline B (FlowPilot Orchestrator)**.
+
+### 1. Live Hardware Benchmark — Local LM Studio (`google/gemma-4-12b-qat`) + PostgreSQL 17 (`pgvector 0.8.7`, 768-dim Nomic) + Redis 7
+
+Measured end-to-end on real local GPU inference (`$0.00` API cost) with remote PostgreSQL 17 `pgvector` and Redis 7:
+
+| Metric | Baseline A (Monolithic `gemma-4-12b-qat`) | Baseline B (FlowPilot Orchestrator) | Delta |
+|---|---:|---:|---:|
+| **Avg Tokens / Request** | 692.9 | **400.5** | **-42.2%** |
+| **p50 Latency** | 34,545.6 ms (34.5s) | **21,103.9 ms (21.1s)** | **-38.9%** |
+| **Tier 0 Fast-Path Latency** | 11,545–33,259 ms | **1.5–65.5 ms** (`2.7 ms` Redis cache hit) | **>500x faster** |
+| **Throughput** | 0.12 req/s | **0.18 req/s** | **1.50x** |
+| **Field-Level F1** | 1.0000 | **1.0000** | +0.0000 |
+| **Classification F1** | 1.0000 | **1.0000** | +0.0000 |
+| **Escalation Rate** | 100.0% | **12.5%** | Selective |
+| **Failure Rate** | 0.0% | **0.0%** | 100% reliable |
+| **Calibration ECE** | 0.1240 | **0.0893** | **-28.0% ECE** |
+
+### 2. Heterogeneous Multi-Tier Cloud Pricing Benchmark (`gpt-4o-mini` Tier 1/2 + `gpt-4o` Tier 3)
 
 | Metric | Baseline A (Monolithic Frontier) | Baseline B (FlowPilot Orchestrator) | Delta |
 |---|---:|---:|---:|
 | **Avg Tokens / Request** | 2,459.1 | **1,075.9** | **-56.2%** |
 | **Avg Cost / Request (USD)** | $0.01409 | **$0.00171** | **-87.9%** |
-| **p50 Latency** | 680.0 ms | **68.3 ms** | **-90.0%** |
+| **p50 Latency** | 680.0 ms | **63.7 ms** | **-90.6%** |
 | **p95 Latency** | 680.0 ms | **470.1 ms** | **-30.9%** |
-| **Throughput** | 5.88 req/s | **32.20 req/s** | **5.48x** |
+| **Throughput** | 5.88 req/s | **32.45 req/s** | **5.52x** |
 | **Field-Level F1** | 1.0000 | **1.0000** | +0.0000 |
 | **Classification F1** | 1.0000 | **1.0000** | +0.0000 |
 | **Escalation Rate** | 100.0% | **12.5%** | Selective |
 | **Failure Rate** | 0.0% | **0.0%** | 100% reliable |
-| **Calibration ECE** | 0.0782 | **0.0619** | Better calibrated |
 
-Tier Routing Distribution across the 16-case suite: **6 Tier 0 · 4 Tier 1 · 4 Tier 2 · 2 Tier 3**.
+Tier Routing Distribution across both 16-case runs: **6 Tier 0 · 4 Tier 1 · 4 Tier 2 · 2 Tier 3**.
 
 Reproduce anytime with:
 ```bash

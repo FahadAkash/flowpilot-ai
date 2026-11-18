@@ -59,6 +59,17 @@ DEFAULT_MODELS: list[dict[str, object]] = [
         "calibration_intercept": 0.05,
     },
     {
+        "model_key": "google/gemma-4-12b-qat",
+        "provider": "lmstudio",
+        "tier": 2,
+        "input_cost_per_1k": 0.0,
+        "output_cost_per_1k": 0.0,
+        "max_context_tokens": 128_000,
+        "avg_latency_ms": 850.0,
+        "calibration_slope": 0.94,
+        "calibration_intercept": 0.03,
+    },
+    {
         "model_key": "gpt-4o",
         "provider": "openai",
         "tier": 3,

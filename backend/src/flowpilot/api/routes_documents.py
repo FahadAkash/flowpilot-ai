@@ -6,12 +6,11 @@ from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from flowpilot.api.deps import CurrentUserDep, SessionDep
 from flowpilot.benchmarks.dataset import get_enterprise_demo_pack
+from flowpilot.config import get_settings
 from flowpilot.documents.repository import DocumentRepository
 from flowpilot.schemas.documents import DocumentChunkOut, DocumentDetailOut, DocumentOut
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
-
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
 
 
 @router.post("/upload", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
@@ -23,8 +22,12 @@ async def upload_document(
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="Uploaded file exceeds 20 MB size limit.")
+    max_bytes = get_settings().max_upload_size_mb * 1024 * 1024
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Uploaded file exceeds {get_settings().max_upload_size_mb} MB size limit.",
+        )
 
     repo = DocumentRepository(session)
     doc = await repo.ingest_bytes(

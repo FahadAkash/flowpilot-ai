@@ -4,6 +4,7 @@ Follows python-skills/web-app-architecture and llm-features conventions:
 - Single BaseSettings model validated at boot
 - Refuses default secret key in production
 - Normalizes postgres:// URLs to postgresql+asyncpg://
+- Supports both FLOWPILOT_* prefixed vars and standard env var names (DATABASE_URL, LM_STUDIO_*, etc.)
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_DEV_SECRET = "dev-only-change-in-production-flowpilot-secret-key-32bytes"
@@ -32,33 +33,92 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="FLOWPILOT_",
-        env_file=".env",
+        env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     app_name: str = "FlowPilot AI"
-    env: Literal["development", "test", "staging", "production"] = "development"
+    env: Literal["development", "test", "staging", "production"] = Field(
+        default="development",
+        validation_alias=AliasChoices("FLOWPILOT_ENV", "ENVIRONMENT"),
+    )
     debug: bool = False
-    secret_key: str = DEFAULT_DEV_SECRET
-    access_token_expire_minutes: int = 60 * 24
+    secret_key: str = Field(
+        default=DEFAULT_DEV_SECRET,
+        validation_alias=AliasChoices("FLOWPILOT_SECRET_KEY", "SECRET_KEY"),
+    )
+    access_token_expire_minutes: int = Field(
+        default=60 * 24,
+        validation_alias=AliasChoices(
+            "FLOWPILOT_ACCESS_TOKEN_EXPIRE_MINUTES",
+            "ACCESS_TOKEN_EXPIRE_MINUTES",
+        ),
+    )
 
-    database_url: str = "sqlite+aiosqlite:///./flowpilot_dev.db"
-    redis_url: str = "redis://localhost:6379/0"
-    celery_broker_url: str = "redis://localhost:6379/1"
-    celery_result_backend: str = "redis://localhost:6379/2"
-    storage_dir: str = "./storage/documents"
+    database_url: str = Field(
+        default="sqlite+aiosqlite:///./flowpilot_dev.db",
+        validation_alias=AliasChoices("FLOWPILOT_DATABASE_URL", "DATABASE_URL"),
+    )
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias=AliasChoices("FLOWPILOT_REDIS_URL", "REDIS_URL"),
+    )
+    celery_broker_url: str = Field(
+        default="redis://localhost:6379/1",
+        validation_alias=AliasChoices("FLOWPILOT_CELERY_BROKER_URL", "CELERY_BROKER_URL"),
+    )
+    celery_result_backend: str = Field(
+        default="redis://localhost:6379/2",
+        validation_alias=AliasChoices(
+            "FLOWPILOT_CELERY_RESULT_BACKEND",
+            "CELERY_RESULT_BACKEND",
+        ),
+    )
+    storage_dir: str = Field(
+        default="./storage/documents",
+        validation_alias=AliasChoices("FLOWPILOT_STORAGE_DIR", "STORAGE_DIR"),
+    )
+    max_upload_size_mb: int = Field(
+        default=50,
+        validation_alias=AliasChoices("FLOWPILOT_MAX_UPLOAD_SIZE_MB", "MAX_UPLOAD_SIZE_MB"),
+    )
     cors_origins_raw: str = Field(
         default="http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173",
         alias="FLOWPILOT_CORS_ORIGINS",
     )
 
-    # LLM Gateway
-    llm_provider: Literal["mock", "openai", "gemini", "anthropic", "ollama"] = "mock"
+    # LLM Gateway (mock | lmstudio | openai | gemini | anthropic | ollama)
+    llm_provider: Literal["mock", "lmstudio", "openai", "gemini", "anthropic", "ollama"] = Field(
+        default="mock",
+        validation_alias=AliasChoices("FLOWPILOT_LLM_PROVIDER", "LLM_PROVIDER"),
+    )
     tier1_model: str = "gpt-4o-mini"
     tier2_model: str = "gpt-4o-mini"
     tier3_model: str = "gpt-4o"
-    embedding_dimensions: int = 384
+
+    # Local LM Studio (OpenAI-compatible chat + real neural embeddings)
+    lm_studio_base_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("FLOWPILOT_LM_STUDIO_BASE_URL", "LM_STUDIO_BASE_URL"),
+    )
+    lm_studio_chat_model: str = Field(
+        default="google/gemma-4-12b-qat",
+        validation_alias=AliasChoices("FLOWPILOT_LM_STUDIO_CHAT_MODEL", "LM_STUDIO_CHAT_MODEL"),
+    )
+    lm_studio_embedding_model: str = Field(
+        default="text-embedding-nomic-embed-text-v1.5@q8_0",
+        validation_alias=AliasChoices(
+            "FLOWPILOT_LM_STUDIO_EMBEDDING_MODEL",
+            "LM_STUDIO_EMBEDDING_MODEL",
+            "EMBEDDING_MODEL_NAME",
+        ),
+    )
+    embedding_dimensions: int = Field(
+        default=768,
+        validation_alias=AliasChoices("FLOWPILOT_EMBEDDING_DIMENSIONS", "EMBEDDING_DIMENSION"),
+    )
 
     openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
@@ -72,7 +132,7 @@ class Settings(BaseSettings):
     max_steps: int = 12
     max_agent_calls: int = 15
     max_tokens_per_workflow: int = 10_000
-    execution_timeout_seconds: int = 60
+    execution_timeout_seconds: int = 90
     max_retries: int = 2
     max_tool_calls_per_agent: int = 5
     max_escalations: int = 1

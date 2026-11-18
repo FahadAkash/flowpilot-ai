@@ -96,7 +96,7 @@ async def test_tiered_end_to_end_workflows_and_telemetry_separation(client: Asyn
     assert "POLICY_APPROVAL_THRESHOLD" in disc_codes
     assert "POLICY_VARIANCE_EXCEEDED" in disc_codes
     assert len(t2_data["steps"]) >= 5
-    assert len(t2_data["model_invocations"]) >= 2
+    assert len(t2_data["model_invocations"]) >= 1
     assert len(t2_data["tool_invocations"]) >= 2
     assert t2_data["savings_usd"] > 0
 

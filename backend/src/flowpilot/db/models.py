@@ -127,7 +127,7 @@ class DocumentChunk(Base):
     section_title: Mapped[str] = mapped_column(String(255), nullable=False, default="Body")
     content: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    embedding: Mapped[list[float] | None] = mapped_column(PortableVector(384), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(PortableVector(768), nullable=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

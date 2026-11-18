@@ -35,14 +35,19 @@ async def run_tier1_lightweight(
             agent_name="extraction",
             tier=1,
             task_kind="classify_document",
-            system_prompt="Classify the document type and provide a concise one-sentence justification in JSON.",
-            user_prompt=f"Filename: {doc.get('filename')}\nContent:\n{doc.get('raw_text', '')}",
+            system_prompt=(
+                "Classify the document into EXACTLY one of: invoice, purchase_order, policy, "
+                "contract, financial_report, healthcare_report, general_document. "
+                'Return ONLY valid JSON: {"doc_type": "<label>", "summary": "<one sentence>", "confidence": 0.95}.'
+            ),
+            user_prompt=f"Filename: {doc.get('filename')}\nContent:\n{doc.get('raw_text', '')[:1600]}",
             budget=budget,
             context_payload={"filename": doc.get("filename"), "text": doc.get("raw_text", "")},
         )
-        doc_type = str(
+        raw_type = str(
             call.structured_data.get("doc_type") or doc.get("doc_type") or "general_document"
         )
+        doc_type = raw_type.strip().lower().replace(" ", "_").replace("-", "_")
         summary = str(call.structured_data.get("summary") or "")
         record_dict["doc_type"] = doc_type
         return {

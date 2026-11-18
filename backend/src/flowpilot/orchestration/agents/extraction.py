@@ -1,4 +1,8 @@
-"""Extraction Agent: structured Pydantic field extraction across retrieved documents."""
+"""Extraction Agent: deterministic-first structured Pydantic extraction with LLM fallback.
+
+Runs the zero-token `structured_field_parser` first. Only invokes the Tier 2 LLM
+when deterministic parsing leaves schema gaps (unstructured documents) or on retry.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +25,7 @@ async def run_extraction_agent(
     budget: WorkflowBudgetTracker,
     retry_feedback: str | None = None,
 ) -> dict[str, Any]:
-    """Extract typed records for each document using deterministic grounding + Tier 2 SLM."""
+    """Extract typed records for each document, skipping redundant LLM calls when schema is complete."""
     budget.record_agent_call("extraction")
     budget.record_tool_call("extraction", "structured_field_parser")
 
@@ -38,6 +42,26 @@ async def run_extraction_agent(
         "error_message": None,
     }
 
+    populated = sum(
+        1
+        for r in records
+        if r.get("document_number")
+        or r.get("total_amount") is not None
+        or r.get("policy_rules")
+        or r.get("contract_clauses")
+    )
+    coverage = populated / max(len(records), 1)
+
+    # Deterministic-first: skip redundant LLM extraction when every document parsed cleanly
+    if coverage >= 0.99 and not retry_feedback:
+        return {
+            "extracted_records": records,
+            "raw_confidence": 0.96,
+            "calibrated_confidence": 0.96,
+            "model_log": None,
+            "tool_logs": [tool_log],
+        }
+
     chunk_excerpt = "\n".join(
         f"[{c['filename']} p.{c['page_number']}] {c['content'][:220]}" for c in retrieved_chunks[:3]
     )
@@ -47,16 +71,7 @@ async def run_extraction_agent(
         f"Excerpts:\n{chunk_excerpt}"
     )
 
-    populated = sum(
-        1
-        for r in records
-        if r.get("document_number")
-        or r.get("total_amount") is not None
-        or r.get("policy_rules")
-        or r.get("contract_clauses")
-    )
-    completeness = 0.80 + (0.14 * (populated / max(len(records), 1)))
-
+    completeness = 0.80 + (0.14 * coverage)
     call = await gateway.invoke(
         workflow_id=workflow_id,
         agent_name="extraction",
