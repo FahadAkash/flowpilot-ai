@@ -1,0 +1,108 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flowpilot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flowpilot}
+      POSTGRES_DB: ${POSTGRES_DB:-flowpilot}
+    ports:
+      - "5432:5432"
+    volumes:
+      - flowpilot_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowpilot -d flowpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      FLOWPILOT_ENV: ${FLOWPILOT_ENV:-development}
+      FLOWPILOT_DATABASE_URL: postgresql+asyncpg://flowpilot:flowpilot@postgres:5432/flowpilot
+      FLOWPILOT_REDIS_URL: redis://redis:6379/0
+      FLOWPILOT_CELERY_BROKER_URL: redis://redis:6379/1
+      FLOWPILOT_CELERY_RESULT_BACKEND: redis://redis:6379/2
+      FLOWPILOT_LLM_PROVIDER: ${FLOWPILOT_LLM_PROVIDER:-mock}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "flowpilot.workers.celery_app:celery_app", "worker", "--loglevel=info"]
+    environment:
+      FLOWPILOT_ENV: ${FLOWPILOT_ENV:-development}
+      FLOWPILOT_DATABASE_URL: postgresql+asyncpg://flowpilot:flowpilot@postgres:5432/flowpilot
+      FLOWPILOT_REDIS_URL: redis://redis:6379/0
+      FLOWPILOT_CELERY_BROKER_URL: redis://redis:6379/1
+      FLOWPILOT_CELERY_RESULT_BACKEND: redis://redis:6379/2
+      FLOWPILOT_LLM_PROVIDER: ${FLOWPILOT_LLM_PROVIDER:-mock}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - api
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-flowpilot}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  flowpilot_pgdata:

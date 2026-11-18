@@ -1,0 +1,65 @@
+{
+  "title": "FlowPilot AI — Tiered Orchestration & Cost Guardrails",
+  "uid": "flowpilot-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total Estimated Savings (USD)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "flowpilot_estimated_savings_usd_total", "refId": "A" }]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total Workflows Executed",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sum(flowpilot_workflows_total)", "refId": "A" }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Tier 3 Escalations",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sum(flowpilot_escalations_total)", "refId": "A" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Guardrail Trips",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "targets": [{ "expr": "sum(flowpilot_guardrail_trips_total)", "refId": "A" }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Workflows by Tier (Tier 0 - Tier 3)",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum by (tier) (rate(flowpilot_workflows_total[5m]))", "legendFormat": "Tier {{tier}}", "refId": "A" }]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "p95 Workflow Latency by Tier (s)",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, tier) (rate(flowpilot_workflow_latency_seconds_bucket[5m])))", "legendFormat": "Tier {{tier}} p95", "refId": "A" }]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Token Consumption by Model",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "targets": [{ "expr": "sum by (model) (rate(flowpilot_tokens_total[5m]))", "legendFormat": "{{model}}", "refId": "A" }]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Circuit Breaker States (0=Closed, 1=Half-Open, 2=Open)",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "targets": [{ "expr": "flowpilot_circuit_breaker_state", "legendFormat": "{{provider_key}}", "refId": "A" }]
+    }
+  ]
+}
