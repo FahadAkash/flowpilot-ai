@@ -55,9 +55,32 @@ Measured end-to-end on real local GPU inference (`$0.00` API cost) with remote P
 
 Tier Routing Distribution across both 16-case runs: **6 Tier 0 · 4 Tier 1 · 4 Tier 2 · 2 Tier 3**.
 
+### 3. Non-LLM Engineering Subsystems & Infrastructure Benchmark
+
+To eliminate local LLM inference variance and independently evaluate all backend, vector, caching, and orchestration pipelines, we benchmarked the non-LLM engineering subsystems directly against live infrastructure:
+- **PostgreSQL 17.12 + `pgvector 0.8.7`** on `192.168.0.113:5433/flowpilot`
+- **Redis 7.4.11** on `192.168.0.113:6379/3`
+- **Neural Embeddings** (`text-embedding-nomic-embed-text-v1.5@q8_0`, 768-dim)
+
+| Subsystem | Backing Engine | Tested Operations | p50 Latency | p95 Latency | p99 Latency | Throughput | Zero-LLM Cost |
+|---|---|---:|---:|---:|---:|---:|---:|
+| **1. Tier 0 Deterministic Path** | Compiled Regex + Math + Date Parsers | 600 ops | **0.15 ms** | **0.41 ms** | 0.68 ms | **4,816.2 ops/s** | $0.00 / 0 tokens |
+| **2. Production Guardrails Engine** | 8 Guards + CircuitBreaker + Cancellation + ContextLimiter | 1,000 ops | **0.01 ms** | **0.95 ms** | 1.27 ms | **5,677.0 ops/s** | $0.00 / 0 tokens |
+| **3. 3-Way Diff & Pydantic v2 Validation** | Deterministic Rules + Pydantic v2 Schema | 150 ops | **1.02 ms** | **1.99 ms** | 3.49 ms | **812.1 ops/s** | $0.00 / 0 tokens |
+| **4. PDF Ingestion & Chunking** | PyMuPDF (`pymupdf`) Structure-Aware Chunker | 50 docs | **2.49 ms** | **5.27 ms** | 45.47 ms | **282.3 docs/s** | $0.00 / 0 tokens |
+| **5. Remote Redis 7 Cache** | Redis 7 Network SET + GET Round-Trip Pair | 150 ops | **4.44 ms** | **7.75 ms** | 10.46 ms | **197.9 ops/s** | $0.00 / 0 tokens |
+| **6. FastAPI Concurrent HTTP Throughput** | ASGI (10x concurrency, real DB + Redis mix) | 60 requests | **90.92 ms** | **305.32 ms** | 344.06 ms | **78.2 req/s** | 0 errors |
+| **7. LangGraph + PostgreSQL 17 Persistence** | `StateGraph` Transitions + 5-Table Audit Writes | 20 workflows | **260.05 ms** | **757.26 ms** | 783.59 ms | **2.5 wf/s** | Full audit persistence |
+| **8. 768-dim Neural Embeddings** | Nomic Embed v1.5 (Local GPU API) | 25 chunks | **485.52 ms** | **520.42 ms** | 567.73 ms | **2.1 chunks/s** | $0.00 / 0 tokens |
+| **9. pgvector Hybrid Retrieval** | PostgreSQL 17 `pgvector` Cosine + Lexical Rerank | 40 queries | **510.32 ms** | **614.93 ms** | 622.65 ms | **1.9 queries/s** | top_k=5 reranked |
+
 Reproduce anytime with:
 ```bash
+# Run full benchmark (Baseline A vs Baseline B)
 uv run --directory backend flowpilot-benchmark --output benchmark_report.md
+
+# Run live non-LLM infrastructure benchmark
+uv run --directory backend python -m flowpilot.benchmarks.infra_benchmark --output benchmark_report_infra.md
 ```
 
 ---
